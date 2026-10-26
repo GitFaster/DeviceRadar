@@ -377,13 +377,23 @@ final class OSMService {
         allowed.insert(charactersIn: "-._~")
         let body = "data=" + (query.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")
         req.httpBody = body.data(using: .utf8)
-        session.dataTask(with: req) { [weak self] data, response, _ in
+        session.dataTask(with: req) { [weak self] data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             var parsed: OverpassResponse?
-            if status == 200, let data { parsed = try? JSONDecoder().decode(OverpassResponse.self, from: data) }
+            if status == 200, let data {
+                do { parsed = try JSONDecoder().decode(OverpassResponse.self, from: data) }
+                catch { print("[overpass] decode failed: \(error)") }
+            } else {
+                print("[overpass] \(self?.endpoints[attempt % (self?.endpoints.count ?? 1)].host ?? "?") status \(status) \(error?.localizedDescription ?? "")")
+            }
             DispatchQueue.main.async {
                 if parsed == nil, attempt == 0, let self {
-                    self.run(query, attempt: 1, completion: completion)
+                    // Back off before hitting the mirror; 429/504 mean the public server is busy.
+                    let delay: Double = (status == 429 || status == 504) ? 5 : 1.5
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self else { completion(nil); return }
+                        self.run(query, attempt: 1, completion: completion)
+                    }
                 } else {
                     completion(parsed)
                 }

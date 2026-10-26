@@ -294,3 +294,171 @@ struct TripRow: View {
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.hairline, lineWidth: 1))
     }
 }
+
+// MARK: - Places to go (nearby parks, dog parks, likely-shady spots)
+
+import MapKit
+
+enum PlaceCategory: String, CaseIterable, Identifiable {
+    case all = "All", parks = "Parks", dogParks = "Dog Parks", shady = "Shady Spots", water = "Beaches", views = "Trails & Views"
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .all: return "sparkles"
+        case .parks: return "tree.fill"
+        case .dogParks: return "pawprint.fill"
+        case .shady: return "leaf.fill"
+        case .water: return "beach.umbrella.fill"
+        case .views: return "figure.hiking"
+        }
+    }
+}
+
+struct SuggestedPlace: Identifiable {
+    let id: String
+    let item: MKMapItem
+    let distance: CLLocationDistance
+    var tags: Set<PlaceCategory>
+    var name: String { item.name ?? "Unnamed place" }
+}
+
+@MainActor
+final class PlacesSuggester: ObservableObject {
+    @Published var places: [SuggestedPlace] = []
+    @Published var loading = false
+    @Published var error: String?
+    private var lastCenter: CLLocation?
+
+    func refresh(near loc: CLLocation, force: Bool = false) async {
+        if !force, let last = lastCenter, last.distance(from: loc) < 500, !places.isEmpty { return }
+        guard !loading else { return }
+        loading = true; error = nil
+        defer { loading = false }
+        lastCenter = loc
+        let region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 8000, longitudinalMeters: 8000)
+        var bucket: [String: SuggestedPlace] = [:]
+
+        func add(_ items: [MKMapItem], _ tags: Set<PlaceCategory>) {
+            for it in items {
+                guard let c = it.placemark.location else { continue }
+                let key = "\(it.name ?? "")|\(String(format: "%.4f,%.4f", c.coordinate.latitude, c.coordinate.longitude))"
+                var t = tags
+                let n = (it.name ?? "").lowercased()
+                if n.contains("dog") || n.contains("off-leash") || n.contains("off leash") { t.insert(.dogParks) }
+                if ["forest", "wood", "trail", "garden", "nature", "reserve", "grove", "arboretum"].contains(where: n.contains) { t.insert(.shady) }
+                if var e = bucket[key] { e.tags.formUnion(t); bucket[key] = e }
+                else { bucket[key] = SuggestedPlace(id: key, item: it, distance: c.distance(from: loc), tags: t) }
+            }
+        }
+
+        // 1) Points of interest by category (no API keys; Apple Maps).
+        let poi: [(MKPointOfInterestCategory, Set<PlaceCategory>)] = [
+            (.park, [.parks]), (.nationalPark, [.parks, .shady, .views]), (.beach, [.water]),
+        ]
+        for (cat, tags) in poi {
+            let req = MKLocalPointsOfInterestRequest(center: loc.coordinate, radius: 5000)
+            req.pointOfInterestFilter = MKPointOfInterestFilter(including: [cat])
+            if let r = try? await MKLocalSearch(request: req).start() { add(r.mapItems, tags) }
+        }
+        // 2) Natural-language searches for things POI categories don't cover.
+        let queries: [(String, Set<PlaceCategory>)] = [
+            ("dog park", [.dogParks, .parks]),
+            ("forest", [.shady]), ("trail", [.shady, .views]), ("garden", [.shady, .parks]),
+            ("nature reserve", [.shady, .parks]), ("viewpoint", [.views]), ("playground", [.parks]),
+        ]
+        var anyOK = false
+        for (q, tags) in queries {
+            let req = MKLocalSearch.Request()
+            req.naturalLanguageQuery = q
+            req.region = region
+            req.resultTypes = .pointOfInterest
+            do { let r = try await MKLocalSearch(request: req).start(); add(r.mapItems, tags); anyOK = true }
+            catch { continue }
+        }
+        places = bucket.values.filter { $0.distance < 15_000 }.sorted { $0.distance < $1.distance }
+        if places.isEmpty { error = anyOK ? "Nothing found nearby." : "Couldn't reach Apple Maps. Check your connection." }
+    }
+}
+
+struct PlacesView: View {
+    @EnvironmentObject var drive: DriveEngine
+    @StateObject private var model = PlacesSuggester()
+    @State private var category: PlaceCategory = .all
+
+    private var shown: [SuggestedPlace] {
+        category == .all ? model.places : model.places.filter { $0.tags.contains(category) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(PlaceCategory.allCases) { c in
+                            Button { category = c } label: {
+                                Label(c.rawValue, systemImage: c.icon)
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(Capsule().fill(category == c ? Theme.accent : Color.secondary.opacity(0.15)))
+                                    .foregroundStyle(category == c ? Color.white : Color.primary)
+                            }
+                        }
+                    }.padding(.horizontal).padding(.vertical, 10)
+                }
+                List {
+                    if category == .shady {
+                        Text("“Likely shady” is a guess from the type of place (forests, trails, gardens, reserves). Real tree-cover data isn't available.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if drive.location == nil {
+                        Text("Waiting for your location…").foregroundStyle(.secondary)
+                    } else if model.loading && model.places.isEmpty {
+                        HStack { ProgressView(); Text("Finding places near you…") }
+                    } else if let e = model.error, shown.isEmpty {
+                        Text(e).foregroundStyle(.secondary)
+                    } else if shown.isEmpty {
+                        Text("No \(category.rawValue.lowercased()) nearby.").foregroundStyle(.secondary)
+                    }
+                    ForEach(shown) { p in
+                        HStack(spacing: 12) {
+                            Image(systemName: icon(for: p)).foregroundStyle(Theme.accent).frame(width: 28)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(p.name).font(.body.weight(.semibold))
+                                HStack(spacing: 6) {
+                                    Text(distanceText(p.distance))
+                                    if p.tags.contains(.dogParks) { Text("· Dog park") }
+                                    if p.tags.contains(.shady) { Text("· Likely shady") }
+                                }.font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                p.item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking])
+                            } label: { Image(systemName: "map.fill") }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Open \(p.name) in Maps")
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .refreshable { if let l = drive.location { await model.refresh(near: l, force: true) } }
+            }
+            .navigationTitle("Places to go")
+        }
+        .task(id: drive.location.map { "\(Int($0.coordinate.latitude * 200)),\(Int($0.coordinate.longitude * 200))" }) {
+            if let l = drive.location { await model.refresh(near: l) }
+        }
+    }
+
+    private func icon(for p: SuggestedPlace) -> String {
+        if p.tags.contains(.dogParks) { return PlaceCategory.dogParks.icon }
+        if p.tags.contains(.water) { return PlaceCategory.water.icon }
+        if p.tags.contains(.shady) { return PlaceCategory.shady.icon }
+        if p.tags.contains(.views) { return PlaceCategory.views.icon }
+        return PlaceCategory.parks.icon
+    }
+
+    private func distanceText(_ m: CLLocationDistance) -> String {
+        let f = MeasurementFormatter(); f.unitOptions = .naturalScale; f.numberFormatter.maximumFractionDigits = 1
+        return f.string(from: Measurement(value: m, unit: UnitLength.meters))
+    }
+}
