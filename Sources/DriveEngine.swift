@@ -464,8 +464,20 @@ final class DriveEngine: NSObject, ObservableObject, CLLocationManagerDelegate {
             URLQueryItem(name: "wind_speed_unit", value: "kmh"),
         ]
         guard let url = parts?.url else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self, let data,
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            if let error {
+                // Failed fetch: allow another try in ~2 min instead of waiting the full 15.
+                DispatchQueue.main.async { self?.lastWeatherFetch = Date().addingTimeInterval(-780) }
+                print("[weather] fetch failed: \(error.localizedDescription)")
+                return
+            }
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                print("[weather] HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                return
+            }
+            guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let current = json["current"] as? [String: Any] else { return }
             let code = current["weather_code"] as? Int ?? 0
@@ -475,6 +487,8 @@ final class DriveEngine: NSObject, ObservableObject, CLLocationManagerDelegate {
             guard let warning = Self.weatherWarning(code: code, wind: wind, temp: temp, precip: precip) else { return }
             let (title, speech) = warning
             let hour = Int(Date().timeIntervalSince1970 / 3600)
+            DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             self.postAlert(
                 DriveAlert(
                     key: "wx-\(code)-\(hour)",
@@ -485,6 +499,7 @@ final class DriveEngine: NSObject, ObservableObject, CLLocationManagerDelegate {
                 ),
                 speech: speech
             )
+            }
         }.resume()
     }
 

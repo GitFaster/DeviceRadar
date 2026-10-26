@@ -261,7 +261,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = TH646SK5VA;
+				DEVELOPMENT_TEAM = XZ4DV26386;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
@@ -270,7 +270,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.garydeadsuidcdie.deviceradar;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agnet.adkkesw.DeviceRadar;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.agnet.adkkesw;
 				PRODUCT_NAME = DriveRadar;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = YES;
@@ -353,7 +354,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = TH646SK5VA;
+				DEVELOPMENT_TEAM = XZ4DV26386;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
@@ -362,7 +363,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.garydeadsuidcdie.deviceradar;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agnet.adkkesw.DeviceRadar;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.agnet.adkkesw;
 				PRODUCT_NAME = DriveRadar;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = YES;

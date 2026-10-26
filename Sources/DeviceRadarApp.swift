@@ -89,6 +89,9 @@ struct RootView: View {
             InsightsView()
                 .tabItem { Label("Insights", systemImage: "chart.bar.xaxis") }
                 .tag(1)
+            PlacesView()
+                .tabItem { Label("Places", systemImage: "tree.fill") }
+                .tag(3)
             DriveSettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 .tag(2)
